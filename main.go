@@ -8,7 +8,6 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/json"
-	"fmt"
 	"log"
 	"math/big"
 	"net/http"
