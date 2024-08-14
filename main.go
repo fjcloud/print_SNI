@@ -15,11 +15,14 @@ import (
 	"time"
 )
 
-type TLSData struct {
-	ServerName       string   `json:"server_name"`
-	Version          uint16   `json:"version"`
-	CipherSuite      uint16   `json:"cipher_suite"`
-	PeerCertificates []string `json:"peer_certificates"`
+type ClientHelloInfo struct {
+	ServerName        string   `json:"server_name"`
+	SupportedVersions []string `json:"supported_versions"`
+	SupportedCurves   []string `json:"supported_curves"`
+	SignatureSchemes  []string `json:"signature_schemes"`
+	SupportedProtos   []string `json:"supported_protos"`
+	CipherSuites      []string `json:"cipher_suites"`
+	CompressMethods   []uint8  `json:"compress_methods"`
 }
 
 func generateCert(commonName string) (tls.Certificate, error) {
@@ -33,12 +36,10 @@ func generateCert(commonName string) (tls.Certificate, error) {
 		Subject: pkix.Name{
 			CommonName: commonName,
 		},
-		NotBefore: time.Now(),
-		NotAfter:  time.Now().Add(365 * 24 * time.Hour),
-		KeyUsage:  x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
-		ExtKeyUsage: []x509.ExtKeyUsage{
-			x509.ExtKeyUsageServerAuth,
-		},
+		NotBefore:             time.Now(),
+		NotAfter:              time.Now().Add(365 * 24 * time.Hour),
+		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 		BasicConstraintsValid: true,
 	}
 
@@ -65,10 +66,12 @@ func main() {
 		log.Fatalf("Failed to generate certificate: %v", err)
 	}
 
+	var clientHelloInfo *tls.ClientHelloInfo
+
 	tlsConfig := &tls.Config{
 		Certificates: []tls.Certificate{cert},
 		GetConfigForClient: func(hello *tls.ClientHelloInfo) (*tls.Config, error) {
-			log.Printf("Received SNI: %s\n", hello.ServerName)
+			clientHelloInfo = hello
 			return nil, nil
 		},
 	}
@@ -77,23 +80,39 @@ func main() {
 		Addr:      ":" + port,
 		TLSConfig: tlsConfig,
 		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.TLS == nil {
-				http.Error(w, "TLS connection required", http.StatusBadRequest)
+			if clientHelloInfo == nil {
+				http.Error(w, "No TLS ClientHello information available", http.StatusInternalServerError)
 				return
 			}
 
-			tlsData := TLSData{
-				ServerName:  r.TLS.ServerName,
-				Version:     r.TLS.Version,
-				CipherSuite: r.TLS.CipherSuite,
+			info := ClientHelloInfo{
+				ServerName:        clientHelloInfo.ServerName,
+				SupportedVersions: make([]string, len(clientHelloInfo.SupportedVersions)),
+				SupportedCurves:   make([]string, len(clientHelloInfo.SupportedCurves)),
+				SignatureSchemes:  make([]string, len(clientHelloInfo.SignatureSchemes)),
+				SupportedProtos:   clientHelloInfo.SupportedProtos,
+				CipherSuites:      make([]string, len(clientHelloInfo.CipherSuites)),
+				CompressMethods:   clientHelloInfo.CompressionMethods,
 			}
 
-			for _, cert := range r.TLS.PeerCertificates {
-				tlsData.PeerCertificates = append(tlsData.PeerCertificates, cert.Subject.CommonName)
+			for i, v := range clientHelloInfo.SupportedVersions {
+				info.SupportedVersions[i] = tls.VersionName(v)
+			}
+
+			for i, c := range clientHelloInfo.SupportedCurves {
+				info.SupportedCurves[i] = c.String()
+			}
+
+			for i, s := range clientHelloInfo.SignatureSchemes {
+				info.SignatureSchemes[i] = s.String()
+			}
+
+			for i, c := range clientHelloInfo.CipherSuites {
+				info.CipherSuites[i] = tls.CipherSuiteName(c)
 			}
 
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(tlsData)
+			json.NewEncoder(w).Encode(info)
 		}),
 	}
 
