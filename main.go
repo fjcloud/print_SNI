@@ -22,7 +22,12 @@ type ClientHelloInfo struct {
 	SignatureSchemes  []string `json:"signature_schemes"`
 	SupportedProtos   []string `json:"supported_protos"`
 	CipherSuites      []string `json:"cipher_suites"`
-	CompressMethods   []uint8  `json:"compress_methods"`
+	Conn              ConnInfo `json:"conn"`
+}
+
+type ConnInfo struct {
+	RemoteAddr string `json:"remote_addr"`
+	LocalAddr  string `json:"local_addr"`
 }
 
 func generateCert(commonName string) (tls.Certificate, error) {
@@ -92,7 +97,10 @@ func main() {
 				SignatureSchemes:  make([]string, len(clientHelloInfo.SignatureSchemes)),
 				SupportedProtos:   clientHelloInfo.SupportedProtos,
 				CipherSuites:      make([]string, len(clientHelloInfo.CipherSuites)),
-				CompressMethods:   clientHelloInfo.CompressionMethods,
+				Conn: ConnInfo{
+					RemoteAddr: clientHelloInfo.Conn.RemoteAddr().String(),
+					LocalAddr:  clientHelloInfo.Conn.LocalAddr().String(),
+				},
 			}
 
 			for i, v := range clientHelloInfo.SupportedVersions {
