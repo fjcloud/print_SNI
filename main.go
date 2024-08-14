@@ -7,6 +7,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/json"
 	"fmt"
 	"log"
 	"math/big"
@@ -14,6 +15,13 @@ import (
 	"os"
 	"time"
 )
+
+type TLSData struct {
+	ServerName       string   `json:"server_name"`
+	Version          uint16   `json:"version"`
+	CipherSuite      uint16   `json:"cipher_suite"`
+	PeerCertificates []string `json:"peer_certificates"`
+}
 
 func generateCert(commonName string) (tls.Certificate, error) {
 	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
@@ -47,39 +55,50 @@ func generateCert(commonName string) (tls.Certificate, error) {
 }
 
 func main() {
-	// Get CN from environment variable or use default
+	port := "8443"
 	cn := os.Getenv("CERT_CN")
 	if cn == "" {
 		cn = "localhost"
 	}
 
-	// Generate self-signed certificate
 	cert, err := generateCert(cn)
 	if err != nil {
 		log.Fatalf("Failed to generate certificate: %v", err)
 	}
 
-	// Create a TLS configuration
 	tlsConfig := &tls.Config{
 		Certificates: []tls.Certificate{cert},
 		GetConfigForClient: func(hello *tls.ClientHelloInfo) (*tls.Config, error) {
-			// Print the SNI (Server Name Indication)
-			fmt.Printf("Received SNI: %s\n", hello.ServerName)
+			log.Printf("Received SNI: %s\n", hello.ServerName)
 			return nil, nil
 		},
 	}
 
-	// Create a server with the TLS configuration
 	server := &http.Server{
-		Addr:      ":8443",
+		Addr:      ":" + port,
 		TLSConfig: tlsConfig,
 		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			fmt.Fprintf(w, "Hello, you've reached the server!")
+			if r.TLS == nil {
+				http.Error(w, "TLS connection required", http.StatusBadRequest)
+				return
+			}
+
+			tlsData := TLSData{
+				ServerName:  r.TLS.ServerName,
+				Version:     r.TLS.Version,
+				CipherSuite: r.TLS.CipherSuite,
+			}
+
+			for _, cert := range r.TLS.PeerCertificates {
+				tlsData.PeerCertificates = append(tlsData.PeerCertificates, cert.Subject.CommonName)
+			}
+
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(tlsData)
 		}),
 	}
 
-	// Start the server
-	log.Printf("Starting server on :8443 with CN=%s...\n", cn)
+	log.Printf("Starting server on :%s with CN=%s...\n", port, cn)
 	err = server.ListenAndServeTLS("", "")
 	if err != nil {
 		log.Fatalf("Server failed to start: %v", err)
