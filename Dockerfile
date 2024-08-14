@@ -9,4 +9,4 @@ FROM redhat/ubi9-minimal
 WORKDIR /app
 COPY --from=builder /app/main .
 EXPOSE 8443
-CMD ["./app/main"]
+CMD ["./main"]
