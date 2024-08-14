@@ -1,3 +1,3 @@
 module print_SNI
 
-go 1.21.8
+go 1.23
